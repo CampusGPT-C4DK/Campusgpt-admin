@@ -3,6 +3,7 @@ import {
   DocumentResponse,
   DocumentProgress,
   Document,
+  DocumentChunksResponse,
   ChatHistoryResponse,
   ChatHistory,
   AdminStats,
@@ -22,7 +23,7 @@ const getToken = (): string | null => {
 
 const api: AxiosInstance = axios.create({
   baseURL: getBaseUrl(),
-  timeout: 30000,
+  timeout: 60000, // 60 seconds default timeout (increased from 30s)
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -85,6 +86,7 @@ export const adminAPI = {
     formData.append('category', category);
     const response = await api.post('/api/admin/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000, // 5 minutes for large file uploads
     });
     return response.data;
   },
@@ -105,6 +107,7 @@ export const adminAPI = {
     formData.append('categories', JSON.stringify(categories || []));
     const response = await api.post('/api/admin/upload-batch', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 600000, // 10 minutes for batch uploads (multiple files)
     });
     return response.data;
   },
@@ -123,6 +126,30 @@ export const adminAPI = {
 
   getDocumentProgress: async (documentId: string): Promise<DocumentProgress> => {
     const response = await api.get<DocumentProgress>(`/api/admin/document-progress/${documentId}`);
+    return response.data;
+  },
+
+  getDocumentChunks: async (
+    documentId: string,
+    skip = 0,
+    limit = 100
+  ): Promise<DocumentChunksResponse> => {
+    const response = await api.get<DocumentChunksResponse>(
+      `/api/admin/documents/${documentId}/chunks`,
+      { params: { skip, limit } }
+    );
+    return response.data;
+  },
+
+  updateDocumentChunk: async (
+    documentId: string,
+    chunkId: string,
+    content: string
+  ): Promise<any> => {
+    const response = await api.put(
+      `/api/admin/documents/${documentId}/chunks/${chunkId}`,
+      { content }
+    );
     return response.data;
   },
 
@@ -238,11 +265,19 @@ export const chatAPI = {
 // ============================================
 // ERROR HANDLING
 // ============================================
-export const handleApiError = (error: unknown): string => {
+export const handleApiError = (error: unknown, context?: string): string => {
+  let message = '';
   if (axios.isAxiosError(error)) {
-    return error.response?.data?.detail || error.message || 'An error occurred';
+    message = error.response?.data?.detail || error.message || 'An error occurred';
+  } else {
+    message = 'An unexpected error occurred';
   }
-  return 'An unexpected error occurred';
+  
+  // If context provided, prepend it to message
+  if (context) {
+    return `${context}: ${message}`;
+  }
+  return message;
 };
 
 export default api;

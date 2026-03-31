@@ -8,6 +8,8 @@ import {
   LogOut, Zap, ChevronLeft, ChevronRight, Bot, Crown,
   PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
+import { canAccessPage, PAGE_FEATURE_MAP } from '@/lib/permissions';
+import { usePermissionSync } from '@/lib/usePermissionSync';
 
 interface NavItem {
   label: string;
@@ -16,16 +18,16 @@ interface NavItem {
   badge?: string;
   badgeColor?: string;
   section?: string;
-  roles?: string[]; // Which roles can access this item
+  featureId?: string; // Feature ID for permission checking
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, section: 'MAIN MENU', roles: ['admin', 'faculty'] },
-  { label: 'Documents', href: '/dashboard/documents', icon: FileText, roles: ['admin', 'faculty'] },
-  { label: 'AI Chat', href: '/dashboard/chat', icon: Bot, badge: 'Live', badgeColor: '#53ddfc', roles: ['admin', 'faculty'] },
-  { label: 'Chat History', href: '/dashboard/chats', icon: MessageSquare, roles: ['admin', 'faculty'] },
-  { label: 'Users', href: '/dashboard/users', icon: Users, section: 'SYSTEM', roles: ['admin'] },
-  { label: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['admin'] },
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, section: 'MAIN MENU', featureId: 'admin_dashboard' },
+  { label: 'Documents', href: '/dashboard/documents', icon: FileText, featureId: 'documents' },
+  { label: 'AI Chat', href: '/dashboard/chat', icon: Bot, badge: 'Live', badgeColor: '#53ddfc', featureId: 'chat' },
+  { label: 'Chat History', href: '/dashboard/chats', icon: MessageSquare, featureId: 'history' },
+  { label: 'Users', href: '/dashboard/users', icon: Users, section: 'SYSTEM', featureId: 'user_management' },
+  { label: 'Settings', href: '/dashboard/settings', icon: Settings, featureId: 'settings' },
 ];
 
 export default function Sidebar() {
@@ -36,18 +38,44 @@ export default function Sidebar() {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
-  // Load user on mount - important for role-based filtering
+  // Sync permissions every 30 seconds and when tab becomes visible
+  usePermissionSync();
+
+  // Load user on mount - important for feature-based filtering
   useEffect(() => {
-    try {
-      const userData = localStorage.getItem('user');
-      if (userData) {
-        const parsedUser = JSON.parse(userData);
-        setUser(parsedUser);
+    const loadUser = () => {
+      try {
+        const userData = localStorage.getItem('user');
+        if (userData) {
+          const parsedUser = JSON.parse(userData);
+          setUser(parsedUser);
+        }
+      } catch (err) {
+        console.error('Error loading user:', err);
       }
-    } catch (err) {
-      console.error('Error loading user:', err);
-    }
+    };
+
+    loadUser();
     setMounted(true);
+
+    // Listen for storage changes (when admin updates current user's permissions)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'user' && e.newValue) {
+        try {
+          const updatedUser = JSON.parse(e.newValue);
+          setUser(updatedUser);
+          console.log('✅ Sidebar: User permissions updated', updatedUser.features_access);
+        } catch (err) {
+          console.error('Error parsing updated user:', err);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -59,16 +87,16 @@ export default function Sidebar() {
 
   const isActive = (href: string) => (href === '/dashboard' ? pathname === '/dashboard' : pathname === href || pathname.startsWith(href + '/'));
 
-  // Filter nav items based on user role - ONLY show items the user's role has access to
+  // Filter nav items based on user permissions (features_access + role)
   const filteredNavItems = navItems.filter(item => {
-    // If no role restriction, show to all
-    if (!item.roles || item.roles.length === 0) return true;
-    
     // If user not loaded yet, show nothing to avoid flash of unauthorized items
     if (!mounted || !user) return false;
     
-    // Show item only if user's role is in the item's allowed roles
-    return item.roles.includes(user.role);
+    // Check if user can access this page based on their role and features_access
+    const userRole = user.role as 'admin' | 'faculty' | 'student';
+    const featuresAccess = user.features_access || null;
+    
+    return canAccessPage(item.href, userRole, featuresAccess);
   });
 
   let currentSection = '';

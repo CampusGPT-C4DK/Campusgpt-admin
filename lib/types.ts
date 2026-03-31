@@ -56,6 +56,28 @@ export interface DocumentProgress {
   error?: string;
 }
 
+export interface DocumentChunk {
+  id: string;
+  chunk_index: number;
+  content: string;
+  word_count: number;
+  importance_score: number;
+  metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentChunksResponse {
+  total: number;
+  skip: number;
+  limit: number;
+  chunks: DocumentChunk[];
+}
+
+export interface DocumentDetail extends Document {
+  chunks?: DocumentChunk[];
+}
+
 // ============= CHAT TYPES =============
 export interface ChatHistory {
   id: string;

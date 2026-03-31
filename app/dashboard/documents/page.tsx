@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminAPI, handleApiError } from '@/lib/api';
-import { Document, DocumentProgress } from '@/lib/types';
+import { Document, DocumentProgress, DocumentChunk, DocumentChunksResponse } from '@/lib/types';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
 import Header from '@/components/Header';
@@ -11,7 +11,7 @@ import {
   Upload, Trash2, RefreshCw, FileText, Plus,
   Search, ChevronLeft, ChevronRight, X, CheckCircle,
   AlertCircle, Clock, Loader2, UploadCloud, FilePlus2,
-  Activity, TrendingUp,
+  Activity, TrendingUp, Eye, Download, FileCode,
 } from 'lucide-react';
 
 type UploadMode = 'none' | 'single' | 'batch';
@@ -43,6 +43,608 @@ function StatusBadge({ status }: { status: string }) {
       {icons[status]}
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
+  );
+}
+
+// ─── Document Detail Modal ───────────────────────────
+interface DocumentDetailModalProps {
+  document: Document;
+  onClose: () => void;
+}
+
+function DocumentDetailModal({ document, onClose }: DocumentDetailModalProps) {
+  const [chunks, setChunks] = useState<DocumentChunk[]>([]);
+  const [totalChunks, setTotalChunks] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [expandedChunk, setExpandedChunk] = useState<number | null>(null);
+  const [viewing, setViewing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
+  const [editingChunkId, setEditingChunkId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState('');
+  const [savingChunk, setSavingChunk] = useState(false);
+  const chunksPerPage = 10;
+
+  useEffect(() => {
+    fetchChunks();
+  }, [page, document.id]);
+
+  const fetchChunks = async () => {
+    try {
+      setLoading(true);
+      const response = await adminAPI.getDocumentChunks(
+        document.id,
+        page * chunksPerPage,
+        chunksPerPage
+      );
+      
+      // Update chunks and pagination info
+      setChunks(response.chunks || []);
+      setTotalChunks(response.total || 0);
+      
+      // Clear any editing state when fetching fresh chunks
+      setEditingChunkId(null);
+      setEditingContent('');
+    } catch (err: any) {
+      const errorMsg = handleApiError(err);
+      toast.error(`Failed to load chunks: ${errorMsg}`);
+      console.error('Failed to fetch chunks:', err);
+      
+      // On error, keep previously loaded chunks visible (don't clear them)
+      // This provides better UX - user can still see old data while we show error
+      // User can click "Refresh Chunks" to retry
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleViewDocument = async () => {
+    if (!document.file_url) return;
+    setViewing(true);
+    try {
+      // Fetch file with proper MIME type detection
+      const response = await fetch(document.file_url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const blob = await response.blob();
+      
+      // Detect file type from response or document
+      let mimeType = response.headers.get('content-type') || 'application/octet-stream';
+      
+      // If it's a PDF, ensure correct MIME type
+      if (document.file_url.includes('.pdf') || mimeType.includes('pdf')) {
+        mimeType = 'application/pdf';
+      } else if (document.file_url.includes('.docx') || mimeType.includes('word')) {
+        mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      } else if (document.file_url.includes('.doc') || mimeType.includes('msword')) {
+        mimeType = 'application/msword';
+      } else if (document.file_url.includes('.txt')) {
+        mimeType = 'text/plain';
+      }
+      
+      // Create blob with correct MIME type
+      const typedBlob = new Blob([blob], { type: mimeType });
+      const blobUrl = globalThis.URL.createObjectURL(typedBlob);
+      
+      // Open in new tab/window with viewer
+      const viewer = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      
+      if (!viewer) {
+        toast.error('Popup blocked. Try opening file in browser directly.');
+        // Fallback: open file URL directly
+        window.location.href = document.file_url;
+      } else {
+        toast.success('Opening document in viewer...');
+      }
+    } catch (err) {
+      console.error('View error:', err);
+      toast.error('Could not open document. Opening file directly...');
+      // Final fallback - open file URL directly
+      window.open(document.file_url, '_blank', 'noopener,noreferrer');
+    } finally {
+      setViewing(false);
+    }
+  };
+
+  const handleDownloadDocument = async () => {
+    if (!document.file_url) return;
+    
+    setDownloading(true);
+    try {
+      toast.success('Starting download...');
+      
+      // Fetch with proper headers
+      const response = await fetch(document.file_url, {
+        method: 'GET',
+        headers: {
+          'Accept': '*/*',
+        },
+        mode: 'cors',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const blob = await response.blob();
+      
+      // Extract file extension from URL or use default
+      let fileName = document.title || 'document';
+      const urlParts = document.file_url.split('.');
+      const extension = urlParts[urlParts.length - 1]?.split('?')[0] || 'pdf';
+      if (!fileName.includes('.')) {
+        fileName = `${fileName}.${extension}`;
+      }
+      
+      // Create blob URL and download
+      const url = globalThis.URL.createObjectURL(blob);
+      const link = globalThis.document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.style.display = 'none';
+      
+      globalThis.document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      setTimeout(() => {
+        globalThis.URL.revokeObjectURL(url);
+        globalThis.document.body.removeChild(link);
+      }, 100);
+      
+      toast.success(`✅ Downloaded: ${fileName}`);
+    } catch (err) {
+      console.error('Download error:', err);
+      toast.error('Download failed. Opening file in browser instead...');
+      // Fallback: open directly
+      setTimeout(() => {
+        window.open(document.file_url, '_blank', 'noopener,noreferrer');
+      }, 500);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleCopyUrl = () => {
+    if (document.file_url) {
+      navigator.clipboard.writeText(document.file_url).then(() => {
+        setUrlCopied(true);
+        toast.success('✅ File URL copied to clipboard!');
+        setTimeout(() => setUrlCopied(false), 2000);
+      }).catch(() => {
+        toast.error('Failed to copy URL');
+      });
+    }
+  };
+
+  const handleStartEdit = (chunkId: string, content: string) => {
+    setEditingChunkId(chunkId);
+    setEditingContent(content);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingChunkId(null);
+    setEditingContent('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingChunkId || !editingContent.trim()) {
+      toast.error('Content cannot be empty');
+      return;
+    }
+
+    setSavingChunk(true);
+    try {
+      const result = await adminAPI.updateDocumentChunk(
+        document.id,
+        editingChunkId,
+        editingContent.trim()
+      );
+
+      // Update local chunks with data from API response to ensure consistency
+      setChunks(chunks.map(c => 
+        c.id === editingChunkId 
+          ? { 
+              ...c, 
+              content: result.content || editingContent,
+              word_count: result.word_count || editingContent.trim().split(/\s+/).length,
+              updated_at: result.updated_at || new Date().toISOString()
+            }
+          : c
+      ));
+
+      toast.success('✅ Chunk updated successfully!');
+      setEditingChunkId(null);
+      setEditingContent('');
+    } catch (err: any) {
+      const errorMsg = handleApiError(err);
+      toast.error(errorMsg);
+      
+      // On error, keep editing state open so user can retry or cancel
+      // Don't clear editingChunkId or editingContent - user can adjust and try again
+      console.error('Failed to update chunk:', err);
+    } finally {
+      setSavingChunk(false);
+    }
+  };
+
+  const totalPages = Math.ceil(totalChunks / chunksPerPage);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '24px',
+      overflowY: 'auto',
+    }}>
+      <div className="glass-card animate-fade-in" style={{ width: '100%', maxWidth: '900px', padding: '32px', maxHeight: '90vh', overflowY: 'auto' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#60a5fa', marginBottom: '4px' }}>
+              Document Details
+            </div>
+            <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#f0f4ff' }}>
+              {document.title}
+            </h2>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '24px' }}>
+            <X size={24} />
+          </button>
+        </div>
+
+        {/* Document Metadata */}
+        <div className="glass-card" style={{ padding: '20px', marginBottom: '24px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: '6px' }}>Status</div>
+              <StatusBadge status={document.status} />
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: '6px' }}>Category</div>
+              <span className="badge badge-purple">{document.category || 'general'}</span>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: '6px' }}>File Size</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>{formatSize(document.file_size)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: '6px' }}>Total Chunks</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#60a5fa' }}>{document.total_chunks || 0}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: '6px' }}>Created</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>
+                {new Date(document.created_at).toLocaleDateString()}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: '6px' }}>Document ID</div>
+              <div style={{ fontSize: '12px', fontFamily: 'JetBrains Mono, monospace', color: '#475569', wordBreak: 'break-all' }}>
+                {document.id.slice(0, 12)}…
+              </div>
+            </div>
+          </div>
+
+          {document.description && (
+            <div style={{ paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: '6px' }}>Description</div>
+              <p style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: '1.5' }}>{document.description}</p>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div style={{ paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            {document.file_url ? (
+              <>
+                <button
+                  onClick={handleViewDocument}
+                  disabled={viewing}
+                  className="btn-primary"
+                  style={{ fontSize: '12px', padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: viewing ? 0.6 : 1 }}
+                >
+                  {viewing ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Eye size={13} />}
+                  {viewing ? 'Opening...' : 'View Document'}
+                </button>
+                <button
+                  onClick={handleDownloadDocument}
+                  disabled={downloading}
+                  className="btn-primary"
+                  style={{ fontSize: '12px', padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.3)', color: '#60a5fa', opacity: downloading ? 0.6 : 1 }}
+                >
+                  {downloading ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={13} />}
+                  {downloading ? 'Downloading...' : 'Download'}
+                </button>
+                <button
+                  onClick={handleCopyUrl}
+                  className="btn-secondary"
+                  style={{ fontSize: '12px', padding: '8px 12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  title="Copy file URL to clipboard"
+                >
+                  <span style={{ fontSize: '10px' }}>📋</span> {urlCopied ? 'Copied!' : 'Copy URL'}
+                </button>
+              </>
+            ) : (
+              <div style={{ fontSize: '12px', color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <AlertCircle size={14} /> No file available for viewing
+              </div>
+            )}
+            <button
+              onClick={fetchChunks}
+              className="btn-secondary"
+              style={{ fontSize: '12px', padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              title="Refresh chunks list"
+            >
+              <RefreshCw size={13} /> Refresh Chunks
+            </button>
+          </div>
+        </div>
+
+        {/* Chunks Section */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <FileCode size={18} color="#60a5fa" />
+            <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#f0f4ff' }}>
+              Document Chunks ({totalChunks})
+            </h3>
+          </div>
+
+          {loading && page === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#475569' }}>
+              <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 12px', display: 'block' }} />
+              Loading chunks…
+            </div>
+          ) : chunks.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#475569' }}>
+              <FileCode size={36} style={{ margin: '0 auto 12px', opacity: 0.3, display: 'block' }} />
+              No chunks available
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {chunks.map((chunk, idx) => (
+                  <div
+                    key={chunk.id}
+                    style={{
+                      padding: '14px',
+                      borderRadius: '10px',
+                      background: (expandedChunk === idx || editingChunkId === chunk.id) ? 'rgba(96,165,250,0.08)' : 'rgba(255,255,255,0.02)',
+                      border: `1px solid ${(expandedChunk === idx || editingChunkId === chunk.id) ? 'rgba(96,165,250,0.2)' : 'rgba(255,255,255,0.05)'}`,
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    {/* Chunk Header */}
+                    <div 
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: (expandedChunk === idx || editingChunkId === chunk.id) ? '12px' : 0, cursor: 'pointer' }}
+                      onClick={() => {
+                        // Don't collapse if editing
+                        if (editingChunkId !== chunk.id) {
+                          setExpandedChunk(expandedChunk === idx ? null : idx);
+                        }
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                        <div style={{
+                          width: '32px', height: '32px',
+                          borderRadius: '8px',
+                          background: 'rgba(96,165,250,0.1)',
+                          border: '1px solid rgba(96,165,250,0.2)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '12px', fontWeight: '700', color: '#60a5fa',
+                        }}>
+                          {chunk.chunk_index + 1}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '12px', fontWeight: '600', color: '#d1d5db' }}>
+                            Chunk {chunk.chunk_index + 1}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                            {chunk.word_count} words • Score: {(chunk.importance_score * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {/* Updated Tag - Only show if chunk was actually updated after creation (more than 1 second difference) */}
+                        {chunk.updated_at && chunk.created_at && (new Date(chunk.updated_at).getTime() - new Date(chunk.created_at).getTime()) > 1000 && (
+                          <div style={{
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            background: 'rgba(34,197,94,0.15)',
+                            border: '1px solid rgba(34,197,94,0.3)',
+                            color: '#22c55e',
+                            fontSize: '10px',
+                            fontWeight: '600',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            ✓ Updated
+                            <span style={{ fontSize: '9px', color: '#86efac', marginLeft: '4px' }}>
+                              {new Date(chunk.updated_at).toLocaleDateString()} {new Date(chunk.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        )}
+                        <div style={{ color: '#64748b' }}>
+                          {(expandedChunk === idx || editingChunkId === chunk.id) ? '▼' : '▶'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Chunk Content */}
+                    {(expandedChunk === idx || editingChunkId === chunk.id) && (
+                      <div style={{ paddingLeft: '0px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                        {editingChunkId === chunk.id ? (
+                          // Edit Mode
+                          <div style={{ marginBottom: '12px' }}>
+                            <textarea
+                              value={editingContent}
+                              onChange={(e) => setEditingContent(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                width: '100%',
+                                padding: '12px',
+                                borderRadius: '8px',
+                                background: 'rgba(0,0,0,0.3)',
+                                border: '2px solid rgba(96,165,250,0.5)',
+                                color: '#cbd5e1',
+                                fontFamily: 'JetBrains Mono, monospace',
+                                fontSize: '12px',
+                                lineHeight: '1.6',
+                                minHeight: '200px',
+                                resize: 'vertical',
+                                marginBottom: '12px',
+                              }}
+                              placeholder="Edit chunk content..."
+                              autoFocus
+                            />
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSaveEdit();
+                                }}
+                                disabled={savingChunk}
+                                style={{
+                                  padding: '8px 16px',
+                                  borderRadius: '6px',
+                                  background: 'rgba(52,211,153,0.2)',
+                                  border: '1px solid rgba(52,211,153,0.4)',
+                                  color: '#34d399',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  cursor: savingChunk ? 'not-allowed' : 'pointer',
+                                  opacity: savingChunk ? 0.6 : 1,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                }}
+                              >
+                                {savingChunk ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />}
+                                {savingChunk ? 'Saving...' : 'Save Changes'}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCancelEdit();
+                                }}
+                                disabled={savingChunk}
+                                style={{
+                                  padding: '8px 16px',
+                                  borderRadius: '6px',
+                                  background: 'rgba(244,63,94,0.2)',
+                                  border: '1px solid rgba(244,63,94,0.4)',
+                                  color: '#f43f5e',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  cursor: savingChunk ? 'not-allowed' : 'pointer',
+                                  opacity: savingChunk ? 0.6 : 1,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                }}
+                              >
+                                <X size={13} />
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          // View Mode
+                          <>
+                            <div style={{
+                              padding: '12px',
+                              borderRadius: '8px',
+                              background: 'rgba(0,0,0,0.2)',
+                              border: '1px solid rgba(255,255,255,0.05)',
+                              fontFamily: 'JetBrains Mono, monospace',
+                              fontSize: '12px',
+                              color: '#cbd5e1',
+                              lineHeight: '1.6',
+                              maxHeight: '300px',
+                              overflowY: 'auto',
+                              marginBottom: '12px',
+                              whiteSpace: 'pre-wrap',
+                              wordWrap: 'break-word',
+                            }}>
+                              {chunk.content}
+                            </div>
+
+                            {/* Edit Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEdit(chunk.id, chunk.content);
+                              }}
+                              style={{
+                                padding: '8px 14px',
+                                borderRadius: '6px',
+                                background: 'rgba(96,165,250,0.15)',
+                                border: '1px solid rgba(96,165,250,0.3)',
+                                color: '#60a5fa',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'all 0.2s ease',
+                                marginBottom: '12px',
+                              }}
+                              onMouseOver={(e) => e.currentTarget.style.background = 'rgba(96,165,250,0.25)'}
+                              onMouseOut={(e) => e.currentTarget.style.background = 'rgba(96,165,250,0.15)'}
+                            >
+                              ✏️ Edit This Chunk
+                            </button>
+                          </>
+                        )}
+
+                        {/* Chunk Metadata */}
+                        {chunk.metadata && Object.keys(chunk.metadata).length > 0 && editingChunkId !== chunk.id && (
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '12px', padding: '10px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                            <span style={{ fontWeight: '600', color: '#94a3b8' }}>📋 Metadata:</span>
+                            <div style={{ marginTop: '6px', color: '#64748b' }}>
+                              {Object.entries(chunk.metadata)
+                                .map(([key, val]) => (
+                                  <div key={key} style={{ marginTop: '3px', fontSize: '10px' }}>
+                                    <span style={{ color: '#cbd5e1' }}>{key}:</span> {val}
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div style={{ paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px' }}>
+                  <span style={{ fontSize: '12px', color: '#475569' }}>
+                    Page {page + 1} of {totalPages} • Showing {chunks.length} of {totalChunks} chunks
+                  </span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>
+                      ← Prev
+                    </button>
+                    <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -316,6 +918,9 @@ export default function DocumentsPage() {
 
   // Track recently uploaded doc for progress modal
   const [trackingDoc, setTrackingDoc] = useState<{ id: string; title: string } | null>(null);
+
+  // Document detail modal
+  const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
 
   // Single upload
   const [file, setFile] = useState<File | null>(null);
@@ -668,7 +1273,7 @@ export default function DocumentsPage() {
                   </tr>
                 ) : (
                   filtered.map(doc => (
-                    <tr key={doc.id}>
+                    <tr key={doc.id} onClick={() => setSelectedDocument(doc)} style={{ cursor: 'pointer' }}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -745,6 +1350,13 @@ export default function DocumentsPage() {
           )}
         </div>
       </motion.div>
+
+      {selectedDocument && (
+        <DocumentDetailModal
+          document={selectedDocument}
+          onClose={() => setSelectedDocument(null)}
+        />
+      )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

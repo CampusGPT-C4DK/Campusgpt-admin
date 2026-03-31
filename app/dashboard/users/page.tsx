@@ -6,6 +6,7 @@ import { adminAPI, handleApiError } from '@/lib/api';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
 import Header from '@/components/Header';
+import { FEATURE_CONFIG, getDefaultFeaturesForRole, mergeFeatureAccess, type FeatureId } from '@/lib/permissions';
 import {
   Users, Search, RefreshCw, UserCheck, UserX,
   Shield, GraduationCap, ChevronLeft, ChevronRight,
@@ -46,25 +47,21 @@ export default function UsersPage() {
     }
   }, [router]);
 
-  const AVAILABLE_FEATURES = [
-    { id: 'chat', name: 'Chat Features', icon: '💬', roles: ['student', 'faculty', 'admin'] },
-    { id: 'documents', name: 'View Documents', icon: '📄', roles: ['student', 'faculty', 'admin'] },
-    { id: 'history', name: 'Chat History', icon: '📜', roles: ['student', 'faculty', 'admin'] },
-    { id: 'upload', name: 'Upload Documents', icon: '📤', roles: ['faculty', 'admin'] },
-    { id: 'admin_dashboard', name: 'Admin Dashboard', icon: '📊', roles: ['admin'] },
-    { id: 'user_management', name: 'User Management', icon: '👥', roles: ['admin'] },
-    { id: 'analytics', name: 'View Analytics', icon: '📈', roles: ['faculty', 'admin'] },
-    { id: 'settings', name: 'System Settings', icon: '⚙️', roles: ['admin'] },
-  ];
+  const AVAILABLE_FEATURES = Object.entries(FEATURE_CONFIG).map(([id, config]) => ({
+    id: id as FeatureId,
+    name: config.name,
+    icon: '✓',
+    roles: config.roles,
+  }));
 
   // Helper: Get features allowed for a specific role
   const getFeaturesForRole = (role: string) => {
-    return AVAILABLE_FEATURES.filter(f => f.roles.includes(role));
+    return AVAILABLE_FEATURES.filter(f => f.roles.includes(role as any));
   };
 
-  // Helper: Get default access for a role (all features enabled)
+  // Helper: Get default access for a role (all features enabled by default)
   const getDefaultAccessForRole = (role: string) => {
-    return getFeaturesForRole(role).reduce((acc, f) => ({ ...acc, [f.id]: true }), {});
+    return getDefaultFeaturesForRole(role as 'admin' | 'faculty' | 'student');
   };
 
   const calculatePasswordStrength = (password: string) => {
@@ -216,6 +213,31 @@ export default function UsersPage() {
       
       await adminAPI.updateUserAccess(selectedUser.id, cleanedAccess);
       toast.success(`Access updated for ${selectedUser.full_name}`);
+      
+      // ✨ IMPORTANT: If this is the currently logged-in user, update their localStorage
+      const currentUser = localStorage.getItem('user');
+      if (currentUser) {
+        const parsedCurrentUser = JSON.parse(currentUser);
+        if (parsedCurrentUser.id === selectedUser.id) {
+          // Update the current user's features_access in localStorage
+          parsedCurrentUser.features_access = cleanedAccess;
+          localStorage.setItem('user', JSON.stringify(parsedCurrentUser));
+          console.log('✅ Updated current user permissions in localStorage:', cleanedAccess);
+          
+          // Dispatch storage event to notify other components (like Sidebar) of the change
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'user',
+            newValue: JSON.stringify(parsedCurrentUser),
+            oldValue: currentUser,
+            storageArea: localStorage,
+            url: window.location.href,
+          }));
+          
+          // Optional: Show message to user
+          toast.info('Your permissions have been updated. Some menu items may have changed.');
+        }
+      }
+      
       fetchUsers();
       setSelectedUser(null);
     } catch (err) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminAPI, handleApiError } from '@/lib/api';
 import { toast } from 'react-toastify';
@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Header from '@/components/Header';
 import {
   Upload, X, FileText, UploadCloud, FilePlus2,
-  Loader2, ArrowLeft, CheckCircle, Trash2,
+  Loader2, ArrowLeft, CheckCircle, Trash2, AlertCircle,
   File, Tag, AlignLeft, Sparkles,
 } from 'lucide-react';
 
@@ -18,6 +18,422 @@ function formatSize(bytes: number) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+// ─── Upload Progress Modal Component ───────────────────────────
+function UploadProgressModal({
+  documentId,
+  title,
+  onComplete,
+}: {
+  documentId: string;
+  title: string;
+  onComplete: () => void;
+}) {
+  const [progress, setProgress] = useState<any>(null);
+  const [done, setDone] = useState(false);
+  const [autoRedirect, setAutoRedirect] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    let redirectTimer: NodeJS.Timeout | null = null;
+
+    const poll = async () => {
+      try {
+        const p = await adminAPI.getDocumentProgress(documentId);
+        setProgress(p);
+
+        // Check if processing is complete
+        if (p.status === 'completed' || p.progress >= 100) {
+          setDone(true);
+          if (timerRef.current) clearInterval(timerRef.current);
+          toast.success('✅ Document processing complete! Redirecting...', { autoClose: 3000 });
+
+          // Auto-redirect after 3 seconds
+          setAutoRedirect(true);
+          redirectTimer = setTimeout(() => {
+            router.push('/dashboard/documents');
+          }, 3000);
+        } else if (p.status === 'failed') {
+          setDone(true);
+          if (timerRef.current) clearInterval(timerRef.current);
+          toast.error(`❌ Processing failed: ${p.error || 'Unknown error'}`, { autoClose: 5000 });
+        }
+      } catch (err) {
+        console.error('Progress poll error:', err);
+        // Silently ignore poll errors
+      }
+    };
+
+    // Initial poll
+    poll();
+
+    // Poll every 2 seconds
+    timerRef.current = setInterval(poll, 2000);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (redirectTimer) clearTimeout(redirectTimer);
+    };
+  }, [documentId, router]);
+
+  const pct = Math.round(progress?.progress ?? 0);
+  const stage = progress?.stage || 'Initializing...';
+  const status = progress?.status || 'processing';
+  const totalChunks = progress?.total_chunks || 0;
+  const chunksProcessed = progress?.chunks_processed || 0;
+
+  const getStageColor = () => {
+    switch (status) {
+      case 'completed': return '#34d399';
+      case 'failed': return '#f87171';
+      default: return '#60a5fa';
+    }
+  };
+
+  const getStageIcon = () => {
+    switch (status) {
+      case 'completed': return <CheckCircle size={20} color="#34d399" />;
+      case 'failed': return <AlertCircle size={20} color="#f87171" />;
+      default: return <Loader2 size={20} color="#60a5fa" style={{ animation: 'spin 1s linear infinite' }} />;
+    }
+  };
+
+  const stageMessages: Record<string, string> = {
+    uploading: '📤 Uploading file...',
+    extracting_text: '📖 Extracting text from document...',
+    cleaning_text: '✨ Cleaning and formatting text...',
+    chunking: '✂️ Splitting into chunks...',
+    embedding: '🧠 Generating embeddings...',
+    storing: '💾 Storing in database...',
+    completed: '✅ Processing completed!',
+    failed: '❌ Processing failed',
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      zIndex: 1000,
+      background: 'rgba(0, 0, 0, 0.8)',
+      backdropFilter: 'blur(12px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '24px',
+    }}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.3 }}
+        style={{
+          width: '100%',
+          maxWidth: '500px',
+          padding: '40px',
+          borderRadius: '20px',
+          background: 'linear-gradient(145deg, rgba(15,23,42,0.95), rgba(10,15,25,0.98))',
+          borderWidth: '1px',
+          borderStyle: 'solid',
+          borderColor: 'rgba(255, 255, 255, 0.08)',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+        }}
+      >
+        {/* Header */}
+        <div style={{ marginBottom: '32px', textAlign: 'center' }}>
+          <div style={{
+            fontSize: '12px',
+            fontWeight: '700',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            color: '#60a5fa',
+            marginBottom: '8px',
+          }}>
+            📄 Document Processing
+          </div>
+          <h2 style={{
+            fontSize: '20px',
+            fontWeight: '800',
+            color: '#f0f4ff',
+            lineHeight: '1.4',
+            marginBottom: '4px',
+            wordBreak: 'break-word',
+          }}>
+            {title}
+          </h2>
+          <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>
+            {stageMessages[stage] || stage}
+          </p>
+        </div>
+
+        {/* Large center icon + progress ring */}
+        <div style={{
+          position: 'relative',
+          width: '140px',
+          height: '140px',
+          margin: '0 auto 32px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          {/* Background circle */}
+          <svg
+            width="140"
+            height="140"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              transform: 'rotate(-90deg)',
+            }}
+          >
+            <circle
+              cx="70"
+              cy="70"
+              r="60"
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.06)"
+              strokeWidth="8"
+            />
+            {/* Progress circle */}
+            <circle
+              cx="70"
+              cy="70"
+              r="60"
+              fill="none"
+              stroke={getStageColor()}
+              strokeWidth="8"
+              strokeDasharray={`${2 * Math.PI * 60}`}
+              strokeDashoffset={`${2 * Math.PI * 60 * (1 - pct / 100)}`}
+              strokeLinecap="round"
+              style={{
+                transition: 'stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
+                filter: `drop-shadow(0 0 8px ${getStageColor()}40)`,
+              }}
+            />
+          </svg>
+
+          {/* Center content */}
+          <div
+            style={{
+              position: 'relative',
+              zIndex: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {getStageIcon()}
+            <div style={{
+              fontSize: '28px',
+              fontWeight: '800',
+              color: '#f0f4ff',
+              marginTop: '8px',
+            }}>
+              {pct}%
+            </div>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontSize: '11px',
+            fontWeight: '600',
+            color: '#94a3b8',
+            marginBottom: '10px',
+          }}>
+            <span>Overall Progress</span>
+            <span>{pct}% Complete</span>
+          </div>
+          <div style={{
+            width: '100%',
+            height: '8px',
+            borderRadius: '4px',
+            background: 'rgba(255, 255, 255, 0.06)',
+            overflow: 'hidden',
+          }}>
+            <div
+              style={{
+                height: '100%',
+                background: `linear-gradient(90deg, ${getStageColor()}, ${getStageColor()}dd)`,
+                width: `${pct}%`,
+                transition: 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
+                borderRadius: '4px',
+                boxShadow: `0 0 12px ${getStageColor()}60`,
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Stage details */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '16px',
+          fontSize: '12px',
+          marginBottom: '24px',
+          padding: '16px',
+          borderRadius: '12px',
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid rgba(255, 255, 255, 0.04)',
+        }}>
+          <div>
+            <div style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.05em' }}>Current Stage</div>
+            <div style={{ color: '#f0f4ff', fontWeight: '600' }}>{stageMessages[stage] || stage}</div>
+          </div>
+          <div>
+            <div style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.05em' }}>Chunks</div>
+            <div style={{ color: '#f0f4ff', fontWeight: '600' }}>
+              {totalChunks > 0 ? `${chunksProcessed} / ${totalChunks}` : 'Calculating...'}
+            </div>
+          </div>
+        </div>
+
+        {/* Status message */}
+        {status === 'completed' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              padding: '14px',
+              borderRadius: '10px',
+              background: 'rgba(52, 211, 153, 0.1)',
+              border: '1px solid rgba(52, 211, 153, 0.2)',
+              fontSize: '12px',
+              color: '#34d399',
+              textAlign: 'center',
+              marginBottom: '16px',
+            }}
+          >
+            ✅ Document is now ready to use! {autoRedirect && 'Redirecting...'}
+          </motion.div>
+        )}
+
+        {status === 'failed' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              padding: '14px',
+              borderRadius: '10px',
+              background: 'rgba(248, 113, 113, 0.1)',
+              border: '1px solid rgba(248, 113, 113, 0.2)',
+              fontSize: '12px',
+              color: '#f87171',
+              textAlign: 'center',
+              marginBottom: '16px',
+            }}
+          >
+            ❌ Processing encountered an error. Please try again.
+          </motion.div>
+        )}
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: '12px' }}>
+          {status === 'completed' && (
+            <>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => router.push('/dashboard/documents')}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #34d399, #10b981)',
+                  color: '#fff',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s',
+                }}
+              >
+                Go to Documents
+              </motion.button>
+              <button
+                onClick={onComplete}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  background: 'transparent',
+                  color: '#94a3b8',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'; e.currentTarget.style.color = '#f0f4ff'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#94a3b8'; }}
+              >
+                Upload More
+              </button>
+            </>
+          )}
+
+          {status === 'failed' && (
+            <>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => router.push('/dashboard/documents')}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: '#f0f4ff',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                }}
+              >
+                Back to Documents
+              </motion.button>
+              <button
+                onClick={onComplete}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(248, 113, 113, 0.3)',
+                  background: 'transparent',
+                  color: '#f87171',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                Try Again
+              </button>
+            </>
+          )}
+
+          {status !== 'completed' && status !== 'failed' && (
+            <div style={{
+              flex: 1,
+              padding: '12px',
+              borderRadius: '10px',
+              background: 'rgba(96, 165, 250, 0.1)',
+              color: '#60a5fa',
+              fontSize: '13px',
+              fontWeight: '600',
+              textAlign: 'center',
+              border: '1px solid rgba(96, 165, 250, 0.2)',
+            }}>
+              Processing... Please wait
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
 }
 
 export default function UploadPage() {
@@ -31,6 +447,9 @@ export default function UploadPage() {
   const [description, setDescription] = useState('');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
+  const [uploadedDocId, setUploadedDocId] = useState<string | null>(null);
+  const [uploadedTitle, setUploadedTitle] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   /* ── Batch upload state ── */
@@ -43,11 +462,23 @@ export default function UploadPage() {
     if (!file || !title.trim()) { toast.error('File and title are required'); return; }
     setUploading(true);
     try {
-      await adminAPI.uploadDocument(file, title.trim(), description.trim(), category);
-      toast.success(`"${title}" uploaded successfully! 🎉`);
-      router.push('/dashboard/documents');
+      const result = await adminAPI.uploadDocument(file, title.trim(), description.trim(), category);
+      setUploadedDocId(result.document_id);
+      setUploadedTitle(title);
+      setShowProgress(true);
+      
+      // Show success and redirect after brief delay to allow backend to start processing
+      toast.success(`"${title.trim()}" uploaded! Processing started... 🎉`);
+      setTimeout(() => {
+        router.push('/dashboard/documents');
+      }, 2000);
+      
+      // Clear form
+      setFile(null);
+      setTitle('');
+      setDescription('');
     } catch (err) {
-      handleApiError(err, 'Upload failed');
+      toast.error(handleApiError(err, 'Upload failed'));
     } finally {
       setUploading(false);
     }
@@ -490,6 +921,19 @@ export default function UploadPage() {
           </div>
         </motion.div>
       </motion.div>
+
+      {/* Progress Modal - Show after upload */}
+      {showProgress && uploadedDocId && (
+        <UploadProgressModal
+          documentId={uploadedDocId}
+          title={uploadedTitle}
+          onComplete={() => {
+            setShowProgress(false);
+            setUploadedDocId(null);
+            setUploadedTitle('');
+          }}
+        />
+      )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
