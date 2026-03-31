@@ -1,10 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'react-toastify';
 import Sidebar from '@/components/Sidebar';
 import { Zap } from 'lucide-react';
+import { canAccessPage } from '@/lib/permissions';
+import { usePermissionSync } from '@/lib/usePermissionSync';
 
 export default function DashboardLayout({
   children,
@@ -12,19 +15,75 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [checking, setChecking] = useState(true);
+  const [hasAccess, setHasAccess] = useState(false);
+
+  // Sync permissions every 30 seconds and when tab becomes visible
+  usePermissionSync();
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
-    if (!token) {
+    const userStr = localStorage.getItem('user');
+
+    if (!token || !userStr) {
       router.push('/login');
-    } else {
-      // Slight delay for smooth transition
+      return;
+    }
+
+    try {
+      const user = JSON.parse(userStr);
+      
+      // Check if user has access to this page
+      const userRole = user.role as 'admin' | 'faculty' | 'student';
+      const featuresAccess = user.features_access || null;
+      
+      const canAccess = canAccessPage(pathname, userRole, featuresAccess);
+      
+      if (!canAccess) {
+        // User doesn't have permission for this page - redirect to dashboard
+        console.warn(`Access denied to ${pathname} for user ${user.email}`);
+        router.push('/dashboard');
+        return;
+      }
+
+      setHasAccess(true);
+      setTimeout(() => setChecking(false), 300);
+    } catch (err) {
+      console.error('Error checking permissions:', err);
+      // On error, allow access (fail gracefully) instead of blocking
+      setHasAccess(true);
       setTimeout(() => setChecking(false), 300);
     }
-  }, [router]);
 
-  if (checking) {
+    // Listen for permission changes from admin
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'user' && e.newValue) {
+        try {
+          const updatedUser = JSON.parse(e.newValue);
+          const userRole = updatedUser.role as 'admin' | 'faculty' | 'student';
+          const featuresAccess = updatedUser.features_access || null;
+          const canAccessUpdated = canAccessPage(pathname, userRole, featuresAccess);
+          
+          if (!canAccessUpdated) {
+            console.warn(`Permission revoked for ${pathname}`);
+            toast.error('Your access to this page has been revoked. Redirecting...');
+            setTimeout(() => router.push('/dashboard'), 1000);
+          }
+        } catch (err) {
+          console.error('Error checking updated permissions:', err);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [pathname, router]);
+
+  if (checking || !hasAccess) {
     return (
       <div style={{
         minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -51,10 +110,10 @@ export default function DashboardLayout({
           </motion.div>
           <div style={{ textAlign: 'center' }}>
             <p style={{ color: '#f0f4ff', fontSize: '15px', fontWeight: '600', marginBottom: '4px' }}>
-              Loading Dashboard
+              {hasAccess ? 'Loading Dashboard' : 'Checking Access'}
             </p>
             <p style={{ color: '#475569', fontSize: '13px' }}>
-              Preparing your control center...
+              {hasAccess ? 'Preparing your control center...' : 'Verifying permissions...'}
             </p>
           </div>
         </motion.div>
