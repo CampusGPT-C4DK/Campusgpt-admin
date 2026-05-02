@@ -5,8 +5,9 @@ import { useRouter, usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, FileText, MessageSquare, Users, Settings,
-  LogOut, Zap, ChevronLeft, ChevronRight, Bot, Crown,
+  LogOut, ChevronLeft, ChevronRight, Bot, Crown, ClipboardCheck, GraduationCap,
   PanelLeftClose, PanelLeftOpen,
+  ScrollText,
 } from 'lucide-react';
 import { canAccessPage, PAGE_FEATURE_MAP } from '@/lib/permissions';
 import { usePermissionSync } from '@/lib/usePermissionSync';
@@ -23,7 +24,11 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, section: 'MAIN MENU', featureId: 'admin_dashboard' },
-  { label: 'Documents', href: '/dashboard/documents', icon: FileText, featureId: 'documents' },
+  { label: 'Faculty', href: '/dashboard/faculty', icon: GraduationCap, section: 'FACULTY' },
+  { label: 'Assignments', href: '/dashboard/faculty/assignments', icon: FileText },
+  { label: 'Exam Paper', href: '/dashboard/faculty/exam-paper', icon: ScrollText, featureId: 'exam_paper' },
+  { label: 'Grading', href: '/dashboard/faculty/grading', icon: ClipboardCheck },
+  { label: 'Documents', href: '/dashboard/documents', icon: FileText, section: 'TOOLS', featureId: 'documents' },
   { label: 'AI Chat', href: '/dashboard/chat', icon: Bot, badge: 'Live', badgeColor: '#53ddfc', featureId: 'chat' },
   { label: 'Chat History', href: '/dashboard/chats', icon: MessageSquare, featureId: 'history' },
   { label: 'Users', href: '/dashboard/users', icon: Users, section: 'SYSTEM', featureId: 'user_management' },
@@ -85,7 +90,12 @@ export default function Sidebar() {
     router.push('/login');
   };
 
-  const isActive = (href: string) => (href === '/dashboard' ? pathname === '/dashboard' : pathname === href || pathname.startsWith(href + '/'));
+  const isActive = (href: string) => {
+    // Prevent parent tab like "/dashboard/faculty" from staying active when a child page is selected.
+    if (href === '/dashboard') return pathname === '/dashboard';
+    if (href === '/dashboard/faculty') return pathname === '/dashboard/faculty';
+    return pathname === href || pathname.startsWith(href + '/');
+  };
 
   // Filter nav items based on user permissions (features_access + role)
   const filteredNavItems = navItems.filter(item => {
@@ -106,7 +116,7 @@ export default function Sidebar() {
       animate={{ width: collapsed ? 80 : 270 }}
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }} // Spring-like easing
       style={{
-        minHeight: '100vh', display: 'flex', flexDirection: 'column',
+        height: '100vh', display: 'flex', flexDirection: 'column',
         backgroundColor: '#060e20', // From "Aetheric Noir" design system
         position: 'relative', overflow: 'hidden', flexShrink: 0, zIndex: 10,
         boxShadow: '1px 0 20px rgba(0,0,0,0.5)',
@@ -121,32 +131,70 @@ export default function Sidebar() {
 
       {/* ═══ HEADER ═══ */}
       <div style={{
-        padding: collapsed ? '24px 20px' : '28px 24px',
+        padding: collapsed ? '16px 20px' : '20px 24px',
         display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between',
-        gap: '12px', minHeight: '84px',
+        gap: '12px', minHeight: 'auto',
         position: 'relative', zIndex: 1,
+        background: 'linear-gradient(135deg, rgba(139,92,246,0.05) 0%, rgba(83,221,252,0.03) 100%)',
+        borderBottom: '1px solid rgba(139,92,246,0.15)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', overflow: 'hidden', flex: 1 }}>
           <motion.div
-            whileHover={{ scale: 1.05, boxShadow: '0 0 24px rgba(139,92,246,0.5)' }}
+            whileHover={{ scale: 1.08, boxShadow: '0 0 32px rgba(83,221,252,0.4), inset 0 0 16px rgba(83,221,252,0.2)' }}
+            whileTap={{ scale: 0.95 }}
             style={{
-              width: '40px', height: '40px', borderRadius: '12px', flexShrink: 0,
-              backgroundImage: 'linear-gradient(135deg, #8B5CF6, #3B82F6)',
+              width: '48px', height: '48px', borderRadius: '12px', flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 0 16px rgba(139,92,246,0.3)',
+              boxShadow: '0 4px 20px rgba(83,221,252,0.25), inset 0 0 12px rgba(83,221,252,0.1)',
               cursor: 'pointer',
+              overflow: 'hidden',
+              background: 'white',
+              border: '1.5px solid rgba(83,221,252,0.3)',
+              transition: 'all 0.3s ease',
             }}
             onClick={() => router.push('/dashboard')}
           >
-            <Zap size={20} color="white" />
+            <img 
+              src="/campusgpt-logo.png" 
+              alt="CampusGPT" 
+              title="CampusGPT - Back to Dashboard"
+              style={{ 
+                width: '85%', 
+                height: '85%', 
+                objectFit: 'contain',
+                borderRadius: '8px',
+                filter: 'drop-shadow(0 2px 8px rgba(83,221,252,0.3))',
+              }} 
+            />
           </motion.div>
           {!collapsed && (
-            <motion.div initial={false} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} style={{ overflow: 'hidden' }}>
-              <div style={{ fontSize: '18px', fontWeight: '800', letterSpacing: '-0.02em', whiteSpace: 'nowrap', color: '#dee5ff' }}>
-                Campus<span style={{ backgroundImage: 'linear-gradient(135deg, #ba9eff, #53ddfc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>GPT</span>
+            <motion.div 
+              initial={false} 
+              animate={{ opacity: 1, x: 0 }} 
+              exit={{ opacity: 0, x: -10 }} 
+              style={{ overflow: 'hidden', flex: 1 }}
+            >
+              <div style={{ 
+                fontSize: '16px', 
+                fontWeight: '900', 
+                letterSpacing: '-0.03em', 
+                whiteSpace: 'nowrap',
+                background: 'linear-gradient(135deg, #dee5ff 0%, #53ddfc 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+              }}>
+                CampusGPT
               </div>
-              <div style={{ fontSize: '10px', color: '#a3aac4', letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: '700' }}>
-                Admin Console
+              <div style={{ 
+                fontSize: '9px', 
+                color: '#7d8ba3', 
+                letterSpacing: '0.1em', 
+                textTransform: 'uppercase', 
+                fontWeight: '600',
+                marginTop: '2px'
+              }}>
+                Admin Panel
               </div>
             </motion.div>
           )}
@@ -171,7 +219,7 @@ export default function Sidebar() {
       </motion.button>
 
       {/* ═══ NAVIGATION ═══ */}
-      <nav style={{ flex: 1, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '4px', overflowY: 'auto', position: 'relative', zIndex: 1 }}>
+      <nav style={{ flex: 1, minHeight: 0, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '4px', overflowY: 'auto', overflowX: 'hidden', position: 'relative', zIndex: 1 }}>
         {filteredNavItems.map((item, idx) => {
           const active = isActive(item.href);
           const showSection = item.section && item.section !== currentSection;

@@ -227,11 +227,13 @@ export default function LandingPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
           <div style={{
             width: '36px', height: '36px', borderRadius: '10px',
-            backgroundImage: 'linear-gradient(135deg, #3b82f6, #7c3aed)',
+            backgroundColor: 'white',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: '0 0 20px rgba(59,130,246,0.35)',
+            overflow: 'hidden',
+            border: '1px solid rgba(59,130,246,0.2)',
           }}>
-            <Zap size={18} color="white" />
+            <img src="/campusgpt-logo.png" alt="CampusGPT" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
           <span style={{ fontSize: '17px', fontWeight: '800', letterSpacing: '-0.03em', color: '#f0f4ff' }}>
             Campus<span style={{ backgroundImage: 'linear-gradient(135deg, #60a5fa, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>GPT</span>
@@ -637,8 +639,8 @@ export default function LandingPage() {
           {/* Col 1 */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-              <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundImage: 'linear-gradient(135deg, #3b82f6, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Zap size={15} color="white" />
+              <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid rgba(59,130,246,0.2)' }}>
+                <img src="/campusgpt-logo.png" alt="CampusGPT" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
               </div>
               <span style={{ fontSize: '15px', fontWeight: '700' }}>Campus<span className="gradient-text">GPT</span></span>
             </div>

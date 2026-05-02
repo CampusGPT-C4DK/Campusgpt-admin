@@ -1,0 +1,108 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" width="256" height="256">
+  <defs>
+    <linearGradient id="capGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#001a4d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#003d99;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="circuitGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#53ddfc;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00bfff;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background glow -->
+  <circle cx="128" cy="128" r="128" fill="#0a0e27" opacity="0.3"/>
+
+  <!-- Graduation Cap (3D perspective) -->
+  <g transform="translate(128, 80)">
+    <!-- Cap top (main part) -->
+    <path d="M -50 -20 L 0 -45 L 50 -20 L 50 0 Q 50 10 40 15 L -40 15 Q -50 10 -50 0 Z" 
+          fill="url(#capGradient)" stroke="#53ddfc" stroke-width="1.5" filter="url(#glow)"/>
+    
+    <!-- Circuit pattern on cap -->
+    <g stroke="url(#circuitGradient)" stroke-width="1.2" fill="none" opacity="0.8">
+      <!-- Horizontal lines -->
+      <line x1="-35" y1="-15" x2="35" y2="-15"/>
+      <line x1="-40" y1="-5" x2="40" y2="-5"/>
+      <line x1="-45" y1="5" x2="45" y2="5"/>
+      
+      <!-- Vertical lines -->
+      <line x1="-20" y1="-35" x2="-15" y2="8"/>
+      <line x1="0" y1="-42" x2="0" y2="10"/>
+      <line x1="20" y1="-35" x2="15" y2="8"/>
+      
+      <!-- Diagonal connectors -->
+      <path d="M -35 -15 L -20 0"/>
+      <path d="M 35 -15 L 20 0"/>
+      <path d="M -10 -25 L 10 -8"/>
+    </g>
+
+    <!-- Circuit nodes (dots) -->
+    <g fill="url(#circuitGradient)" opacity="0.9" filter="url(#glow)">
+      <circle cx="-30" cy="-12" r="2.5"/>
+      <circle cx="0" cy="-40" r="2.5"/>
+      <circle cx="30" cy="-12" r="2.5"/>
+      <circle cx="-20" cy="2" r="2"/>
+      <circle cx="0" cy="8" r="2"/>
+      <circle cx="20" cy="2" r="2"/>
+    </g>
+
+    <!-- Cap visor/brim -->
+    <ellipse cx="0" cy="18" rx="55" ry="8" fill="#001a4d" stroke="#53ddfc" stroke-width="1.2" opacity="0.9"/>
+    
+    <!-- Tassel string -->
+    <line x1="0" y1="18" x2="0" y2="50" stroke="#53ddfc" stroke-width="1.5" opacity="0.8"/>
+    
+    <!-- Tassel ball -->
+    <circle cx="0" cy="60" r="5" fill="url(#circuitGradient)" stroke="#53ddfc" stroke-width="1" filter="url(#glow)"/>
+    
+    <!-- Tassel decoration lines -->
+    <g stroke="#53ddfc" stroke-width="1" opacity="0.6">
+      <line x1="-4" y1="60" x2="-12" y2="72"/>
+      <line x1="-2" y1="62" x2="-8" y2="75"/>
+      <line x1="2" y1="62" x2="8" y2="75"/>
+      <line x1="4" y1="60" x2="12" y2="72"/>
+    </g>
+  </g>
+
+  <!-- Circuit board pattern on left side -->
+  <g stroke="#53ddfc" stroke-width="1" fill="none" opacity="0.5">
+    <path d="M 65 100 L 75 100 L 75 115 L 70 115"/>
+    <circle cx="70" cy="100" r="2" fill="#53ddfc"/>
+    <circle cx="75" cy="115" r="2" fill="#53ddfc"/>
+  </g>
+
+  <!-- Circuit board pattern on right side -->
+  <g stroke="#53ddfc" stroke-width="1" fill="none" opacity="0.5">
+    <path d="M 191 100 L 181 100 L 181 115 L 186 115"/>
+    <circle cx="186" cy="100" r="2" fill="#53ddfc"/>
+    <circle cx="181" cy="115" r="2" fill="#53ddfc"/>
+  </g>
+
+  <!-- Text: "CampusGPT" -->
+  <text x="128" y="215" font-family="'Segoe UI', 'Arial', sans-serif" font-size="24" font-weight="900" 
+        text-anchor="middle" letter-spacing="-0.5">
+    <tspan fill="#dee5ff">Campus</tspan><tspan fill="#53ddfc">GPT</tspan>
+  </text>
+
+  <!-- Subtitle -->
+  <text x="128" y="232" font-family="'Segoe UI', 'Arial', sans-serif" font-size="8" font-weight="600" 
+        text-anchor="middle" letter-spacing="1" fill="#7d8ba3" text-transform="uppercase">
+    AI Learning Platform
+  </text>
+
+  <!-- Decorative corner accents -->
+  <g stroke="#53ddfc" stroke-width="0.8" fill="none" opacity="0.3">
+    <path d="M 20 20 L 30 20 L 30 30"/>
+    <path d="M 236 20 L 226 20 L 226 30"/>
+    <path d="M 20 236 L 30 236 L 30 226"/>
+    <path d="M 236 236 L 226 236 L 226 226"/>
+  </g>
+</svg>

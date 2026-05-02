@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { adminAPI } from '@/lib/api';
-import { toast } from 'react-toastify';
 
 /**
  * Hook to periodically sync user permissions from the backend
@@ -15,7 +14,8 @@ export function usePermissionSync() {
   const syncPermissions = useCallback(async () => {
     try {
       const user = localStorage.getItem('user');
-      if (!user) return;
+      const token = localStorage.getItem('access_token');
+      if (!user || !token) return;
 
       const parsedUser = JSON.parse(user);
       
@@ -54,8 +54,26 @@ export function usePermissionSync() {
         
         console.log('✅ Permissions updated and synced to all components');
       }
-    } catch (err) {
-      // Silent fail - don't spam user with errors
+    } catch (err: unknown) {
+      // If session is invalid, stop noisy 401 polling and send user to login.
+      const isUnauthorized =
+        typeof err === 'object' &&
+        err !== null &&
+        'response' in err &&
+        typeof (err as { response?: { status?: number } }).response?.status === 'number' &&
+        (err as { response?: { status?: number } }).response?.status === 401;
+
+      if (isUnauthorized) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('user');
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+        return;
+      }
+
+      // Silent fail for non-auth issues.
       console.debug('Permission sync error (silent):', err);
     }
   }, []);

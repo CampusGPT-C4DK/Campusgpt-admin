@@ -99,8 +99,10 @@ export default function ChatPage() {
 
       setMessages(prev => [...prev.slice(0, -1), assistantMsg]);
     } catch (err: any) {
-      // Extract the actual error message
+      // ✅ IMPROVED: Extract and show actual error message from backend
       let errorContent = 'An unexpected error occurred';
+      let isServiceUnavailable = false;
+      let isMaintenanceMode = false;
       
       if (typeof err === 'string') {
         errorContent = err;
@@ -108,6 +110,17 @@ export default function ChatPage() {
         errorContent = err.response.data.detail;
       } else if (err.message) {
         errorContent = err.message;
+      }
+      
+      // Check if it's a 5xx error or service unavailability
+      const status = err.response?.status;
+      if (status && status >= 500) {
+        isMaintenanceMode = true;
+        // ✅ IMPROVED: Show actual error detail instead of generic message
+        errorContent = `⚠️ Server error: ${errorContent || `(${status})`}. Please try again.`;
+      } else if (errorContent.includes('temporarily unavailable') || errorContent.includes('temporarily busy')) {
+        isServiceUnavailable = true;
+        errorContent = '⚠️ AI service is temporarily busy. Your request was retried automatically. Please try again.';
       }
       
       console.error('Chat error:', err);
@@ -121,8 +134,10 @@ export default function ChatPage() {
       };
       setMessages(prev => [...prev.slice(0, -1), errorMsg]);
       
-      // Only show toast toast if not a timeout (already handled)
-      if (!errorContent.includes('timeout')) {
+      // Show toast with appropriate message
+      if (isMaintenanceMode || isServiceUnavailable) {
+        toast.error(errorContent, { autoClose: 4000 });
+      } else if (!errorContent.includes('timeout')) {
         toast.error(errorContent);
       }
     } finally {
@@ -154,7 +169,7 @@ export default function ChatPage() {
     (messages.filter(m => m.confidence_score).length || 1);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       <Header
         title="AI Chat Testing"
         subtitle="Test the knowledge base with real queries via /api/chat/ask"
@@ -218,7 +233,7 @@ export default function ChatPage() {
       )}
 
       {/* Chat area */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
         {/* Empty state */}
         {messages.length === 0 && (
@@ -436,10 +451,11 @@ export default function ChatPage() {
 
       {/* Input area */}
       <div style={{
-        padding: '16px 28px 24px',
+        padding: '22px 28px 24px',
         borderTop: '1px solid rgba(255,255,255,0.05)',
         background: 'rgba(7,11,20,0.9)',
         backdropFilter: 'blur(20px)',
+        flexShrink: 0,
       }}>
         <div style={{
           display: 'flex', gap: '12px', alignItems: 'flex-end',
@@ -487,9 +503,6 @@ export default function ChatPage() {
             }
           </button>
         </div>
-        <p style={{ fontSize: '11px', color: '#334155', textAlign: 'center', marginTop: '8px' }}>
-          Connected to <code style={{ color: '#60a5fa' }}>POST /api/chat/ask</code> · Admin test mode
-        </p>
       </div>
 
       <style>{`

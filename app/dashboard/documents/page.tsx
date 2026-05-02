@@ -67,6 +67,13 @@ function DocumentDetailModal({ document, onClose }: DocumentDetailModalProps) {
   const chunksPerPage = 10;
 
   useEffect(() => {
+    // Avoid unnecessary API calls for documents that are known to have no chunks.
+    if ((document.total_chunks || 0) === 0) {
+      setChunks([]);
+      setTotalChunks(0);
+      setLoading(false);
+      return;
+    }
     fetchChunks();
   }, [page, document.id]);
 

@@ -18,6 +18,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const [checking, setChecking] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
+  const isChatPage = pathname === '/dashboard/chat';
 
   // Sync permissions every 30 seconds and when tab becomes visible
   usePermissionSync();
@@ -122,7 +123,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', position: 'relative', zIndex: 1 }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
       <Sidebar />
       <motion.main
         initial={{ opacity: 0 }}
@@ -130,7 +131,7 @@ export default function DashboardLayout({
         transition={{ duration: 0.4 }}
         style={{
           flex: 1,
-          overflow: 'auto',
+          overflow: isChatPage ? 'hidden' : 'auto',
           background: 'var(--bg-primary)',
           minWidth: 0,
         }}

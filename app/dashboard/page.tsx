@@ -147,6 +147,8 @@ export default function DashboardPage() {
     : [];
 
   const quickActions = [
+    { label: 'TAE Faculty', icon: Users, href: '/dashboard/faculty', color: '#8b5cf6', bg: 'rgba(139,92,246,0.08)' },
+    { label: 'TAE Grading', icon: CheckCircle, href: '/dashboard/faculty/grading', color: '#22c55e', bg: 'rgba(34,197,94,0.08)' },
     { label: 'Upload Document', icon: Upload, href: '/dashboard/documents', color: '#3b82f6', bg: 'rgba(59,130,246,0.08)' },
     { label: 'View Chat History', icon: MessageSquare, href: '/dashboard/chats', color: '#a78bfa', bg: 'rgba(167,139,250,0.08)' },
     { label: 'Manage Users', icon: Users, href: '/dashboard/users', color: '#34d399', bg: 'rgba(52,211,153,0.08)' },

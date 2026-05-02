@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, Lock, Mail, Zap, Shield, BarChart3, ArrowRight, Brain, Sparkles } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { validateSession, isTokenExpired } from '@/lib/tokenUtils';
 
 /* ─── AURORA MESH ─── */
 function AuroraMesh() {
@@ -97,7 +98,62 @@ export default function LoginPage() {
   const [mounted, setMounted] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    setMounted(true);
+
+    // Check if user already has valid session stored
+    const checkExistingSession = async () => {
+      const token = localStorage.getItem('access_token');
+      const user = localStorage.getItem('user');
+
+      if (token && user) {
+        try {
+          // If token is not expired, redirect to dashboard
+          if (!isTokenExpired(token, 300)) {
+            console.log('✅ Login: Valid session found, redirecting to dashboard');
+            router.push('/dashboard');
+            return;
+          }
+
+          // Token might be expired, try to refresh it
+          const refreshToken = localStorage.getItem('refresh_token');
+          if (refreshToken) {
+            console.log('🔄 Login: Token expired but refresh token available, attempting refresh...');
+            
+            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+            const res = await fetch(`${backendUrl}/api/auth/refresh`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refresh_token: refreshToken }),
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              localStorage.setItem('access_token', data.access_token);
+              localStorage.setItem('refresh_token', data.refresh_token || refreshToken);
+              if (data.user) {
+                localStorage.setItem('user', JSON.stringify(data.user));
+              }
+              console.log('✅ Login: Token refreshed, redirecting to dashboard');
+              router.push('/dashboard');
+              return;
+            }
+          }
+
+          // Refresh failed, clear stored session
+          console.log('❌ Login: Stored session invalid, clearing...');
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          localStorage.removeItem('user');
+        } catch (error) {
+          console.error('Error checking existing session:', error);
+          // Continue to show login form
+        }
+      }
+    };
+
+    checkExistingSession();
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,11 +229,13 @@ export default function LoginPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{
               width: '46px', height: '46px', borderRadius: '14px',
-              backgroundImage: 'linear-gradient(135deg, #3b82f6, #7c3aed)',
+              backgroundColor: 'white',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               boxShadow: '0 0 28px rgba(59,130,246,0.4)',
+              overflow: 'hidden',
+              border: '1px solid rgba(59,130,246,0.2)',
             }}>
-              <Zap size={22} color="white" />
+              <img src="/campusgpt-logo.png" alt="CampusGPT" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             </div>
             <div>
               <div style={{ fontSize: '20px', fontWeight: '800', letterSpacing: '-0.02em' }}>

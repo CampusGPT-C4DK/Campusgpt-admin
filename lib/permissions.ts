@@ -11,7 +11,8 @@ export type FeatureId =
   | 'history' 
   | 'admin_dashboard' 
   | 'user_management' 
-  | 'settings';
+  | 'settings'
+  | 'exam_paper';
 
 // Feature definitions with allowed roles
 // ONLY features for pages that exist in sidebar
@@ -22,6 +23,7 @@ export const FEATURE_CONFIG: Record<FeatureId, { name: string; roles: UserRole[]
   admin_dashboard: { name: 'Admin Dashboard', roles: ['admin'] },
   user_management: { name: 'Users', roles: ['admin'] },
   settings: { name: 'Settings', roles: ['admin', 'faculty', 'student'] },
+  exam_paper: { name: 'Exam Paper Generator', roles: ['faculty', 'admin'] },
 };
 
 // Page to feature mapping
@@ -33,6 +35,7 @@ export const PAGE_FEATURE_MAP: Record<string, FeatureId | null> = {
   '/dashboard/chats': 'history',
   '/dashboard/users': 'user_management',
   '/dashboard/settings': 'settings',
+  '/dashboard/faculty/exam-paper': 'exam_paper',
 };
 
 /**
@@ -47,6 +50,7 @@ export function getDefaultFeaturesForRole(role: UserRole): Record<FeatureId, boo
     admin_dashboard: false,
     user_management: false,
     settings: false,
+    exam_paper: false,
   };
 
   Object.entries(FEATURE_CONFIG).forEach(([featureId, config]) => {

@@ -16,9 +16,64 @@ const getBaseUrl = () => {
   return process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 };
 
+const getChatTimeoutMs = (): number => {
+  const configured = Number(process.env.NEXT_PUBLIC_CHAT_TIMEOUT_MS);
+  if (Number.isFinite(configured) && configured > 0) {
+    return configured;
+  }
+  // Default to 5 minutes for long retrieval/generation flows.
+  return 300000;
+};
+
 const getToken = (): string | null => {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem('access_token');
+};
+
+const getRefreshToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  const rt = localStorage.getItem('refresh_token');
+  return rt || null;
+};
+
+const clearAuthSession = () => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('user');
+};
+
+const redirectToLogin = () => {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+};
+
+let refreshPromise: Promise<string | null> | null = null;
+const refreshAccessToken = async (): Promise<string | null> => {
+  const rt = getRefreshToken();
+  if (!rt) return null;
+
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const response = await api.post<AuthResponse>(
+        '/api/auth/refresh',
+        { refresh_token: rt },
+        { headers: { Authorization: '' } as any }
+      );
+      const data = response.data;
+      if (typeof window !== 'undefined') {
+        if (data.access_token) localStorage.setItem('access_token', data.access_token);
+        if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+        if (data.user) localStorage.setItem('user', JSON.stringify(data.user));
+      }
+      return data.access_token || null;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
 };
 
 const api: AxiosInstance = axios.create({
@@ -26,6 +81,27 @@ const api: AxiosInstance = axios.create({
   timeout: 60000, // 60 seconds default timeout (increased from 30s)
   headers: { 'Content-Type': 'application/json' },
 });
+
+export interface ExamPartInput {
+  bt: string;
+  marks: number;
+}
+
+export interface ExamQuestionInput {
+  unit: string;
+  co: string;
+  subparts: boolean;
+  or_choice: boolean;
+  parts: ExamPartInput[];
+  or_parts?: ExamPartInput[];
+}
+
+export interface ExamPaperGenerateRequest {
+  semester: string;
+  subject: string;
+  exam_type: string;
+  questions: ExamQuestionInput[];
+}
 
 // Request interceptor: Add JWT token
 api.interceptors.request.use(
@@ -39,17 +115,57 @@ api.interceptors.request.use(
   (error: AxiosError) => Promise.reject(error)
 );
 
-// Response interceptor: Handle 401
+// Response interceptor: Handle 401 and 5xx retry
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('user');
-        window.location.href = '/login';
+  async (error: AxiosError) => {
+    const status = error.response?.status;
+    const originalRequest: any = error.config;
+    const requestUrl = String(originalRequest?.url || '');
+    const isAuthRoute = requestUrl.includes('/api/auth/login') || requestUrl.includes('/api/auth/refresh');
+
+    // Auto-refresh once on 401 (access token expired)
+    if (status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
+      originalRequest._retry = true;
+      try {
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          return api.request(originalRequest);
+        }
+      } catch {
+        // refresh failed, clear stale session
+        clearAuthSession();
+        redirectToLogin();
       }
     }
+
+    // If still unauthorized (or refresh token is missing/invalid), force clean re-login.
+    if (status === 401) {
+      clearAuthSession();
+      if (!isAuthRoute) {
+        redirectToLogin();
+      }
+    }
+
+    // Retry on 5xx errors with exponential backoff (but not for auth routes)
+    if (status && status >= 500 && originalRequest && !isAuthRoute) {
+      // Get or initialize retry count
+      originalRequest._retryCount = originalRequest._retryCount || 0;
+      const maxRetries = 3;
+      const retryCount = originalRequest._retryCount;
+
+      // Only retry if under max retries
+      if (retryCount < maxRetries) {
+        originalRequest._retryCount = retryCount + 1;
+        // Exponential backoff: 500ms, 1000ms, 2000ms
+        const delayMs = Math.pow(2, retryCount) * 500;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return api.request(originalRequest);
+      }
+    }
+
     return Promise.reject(error);
   }
 );
@@ -134,11 +250,28 @@ export const adminAPI = {
     skip = 0,
     limit = 100
   ): Promise<DocumentChunksResponse> => {
-    const response = await api.get<DocumentChunksResponse>(
-      `/api/admin/documents/${documentId}/chunks`,
-      { params: { skip, limit } }
-    );
-    return response.data;
+    try {
+      const response = await api.get<DocumentChunksResponse>(
+        `/api/admin/documents/${encodeURIComponent(documentId)}/chunks`,
+        { params: { skip, limit } }
+      );
+      return response.data;
+    } catch (error) {
+      // Some historical/failed documents can exist in UI state without retrievable chunks.
+      // Treat backend 404/timeouts as "no chunks" to keep document details page usable.
+      if (
+        axios.isAxiosError(error) &&
+        (error.response?.status === 404 || error.code === 'ECONNABORTED')
+      ) {
+        return {
+          total: 0,
+          skip,
+          limit,
+          chunks: [],
+        };
+      }
+      throw error;
+    }
   },
 
   updateDocumentChunk: async (
@@ -215,7 +348,7 @@ export const adminAPI = {
     question: string,
     category?: string,
     includeSource: boolean = true,
-    timeoutMs: number = 120000 // 120 seconds max
+    timeoutMs: number = getChatTimeoutMs()
   ): Promise<{
     answer: string;
     confidence_score?: number;
@@ -238,7 +371,33 @@ export const adminAPI = {
     } catch (error: any) {
       // Better error handling
       if (error.code === 'ECONNABORTED' || error.message === 'timeout of ' + timeoutMs + 'ms exceeded') {
-        throw new Error('Request timeout - Backend is still processing. Please try again.');
+        throw new Error(
+          'Request timed out while waiting for the backend. Please retry, or increase NEXT_PUBLIC_CHAT_TIMEOUT_MS for longer answers.'
+        );
+      }
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const detail = (error.response?.data as any)?.detail;
+        
+        // ✅ Handle rate limiting (429)
+        if (status === 429) {
+          throw new Error(
+            '⏱️ Too many requests. Please wait a moment before sending another question.'
+          );
+        }
+        
+        // ✅ Handle server errors (5xx)
+        if (status && status >= 500) {
+          const errorMessage = detail || `Backend error (${status}). Please try again or contact support.`;
+          const enhancedError = new Error(errorMessage) as any;
+          enhancedError.response = error.response;
+          throw enhancedError;
+        }
+        
+        // ✅ Handle other errors with detail messages
+        if (typeof detail === 'string' && detail.trim().length > 0) {
+          throw new Error(detail);
+        }
       }
       throw error;
     }
@@ -258,6 +417,28 @@ export const chatAPI = {
 
   getChat: async (chatId: string): Promise<ChatHistory> => {
     const response = await api.get<ChatHistory>(`/api/chat/history/${chatId}`);
+    return response.data;
+  },
+};
+
+// ============================================
+// EXAM PAPER
+// ============================================
+export const examPaperAPI = {
+  generatePaper: async (payload: ExamPaperGenerateRequest): Promise<{ message: string; download: string }> => {
+    const response = await api.post('/api/exampaper/generate', payload);
+    return response.data;
+  },
+
+  health: async (): Promise<{ status: string; service: string; service_url: string }> => {
+    const response = await api.get('/api/exampaper/health');
+    return response.data;
+  },
+
+  downloadPaper: async (): Promise<Blob> => {
+    const response = await api.get('/api/exampaper/download', {
+      responseType: 'blob',
+    });
     return response.data;
   },
 };
